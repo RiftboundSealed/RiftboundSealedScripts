@@ -108,8 +108,10 @@ function toCardId(card: CardData): string | null {
   if (splits.length > 2) return null;
 
   const cardId = splits[0];
+  // Card ids with "*" indicate a signature, though in our card/CDN IDs, we will use "s".
+  const finalCardId = cardId?.replace("*", "s") || null;
 
-  return cardId?.replace('*', 's') || null;
+  return finalCardId;
 }
 
 async function fetchJsonWithTimeout<T>(url: string, timeoutMs: number): Promise<T> {
@@ -129,7 +131,12 @@ async function fetchJsonWithTimeout<T>(url: string, timeoutMs: number): Promise<
     const res = await axios.request(config);
 
     if (res.status !== 200) {
-      const body = await safeText(res.request as unknown as Response);
+      const body =
+        typeof res.data === "string"
+          ? res.data
+          : res.data != null
+            ? JSON.stringify(res.data)
+            : "";
       throw new Error(`Fetch failed ${res.status} ${res.statusText}: ${body}`);
     }
 
@@ -268,7 +275,7 @@ const pageArgIdx = process.argv.indexOf("--page");
 const pageStr = pageArgIdx >= 0 ? process.argv[pageArgIdx + 1] : undefined;
 
 if (!pageStr) {
-  console.error("Usage: npx tsx scripts/*.ts");
+  console.error("Usage: npx tsx scripts/upload-card-images.ts --page <number>");
   process.exit(1);
 }
 
