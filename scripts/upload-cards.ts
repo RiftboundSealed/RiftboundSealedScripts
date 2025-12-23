@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import crypto from "node:crypto";
+import { mkdir, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
@@ -54,7 +55,7 @@ export async function syncCardsPage(page: number): Promise<void> {
   await mapLimit(data.items, CONCURRENCY, async (card, idx) => {
     const cardId = toCardId(card);
     if (!cardId) {
-      console.warn(`Index [${idx}] - Skipping: missing or malformed set_id/public_code`);
+      console.warn(`Index [${idx}] - Skipping: ${card.public_code} - missing or malformed set_id/public_code`);
       return;
     }
 
@@ -79,20 +80,24 @@ export async function syncCardsPage(page: number): Promise<void> {
     // Convert to webp so the folder structure stays consistent (i.e. OGN-001.webp)
     const webp = await sharp(original).webp({ quality: 85 }).toBuffer();
 
-    const filePath = path.join(tmpDir, `${cardId}.webp`);
+    const filePath = path.join(os.tmpdir(), `riftbound-${cardId}-${crypto.randomUUID()}.webp`);
     await writeFile(filePath, webp);
 
-    console.log(`Index [${idx}] - Uploading: s3://${SPACES_BUCKET}/${objectKey}`);
-    await awsS3Cp({
-      filePath,
-      bucket: SPACES_BUCKET,
-      key: objectKey,
-      endpointUrl: SPACES_ENDPOINT_URL,
-      contentType: "image/webp",
-      cacheControl: "public, max-age=31536000, immutable",
-    });
+    try {
+      console.log(`Index [${idx}] - Uploading: s3://${SPACES_BUCKET}/${objectKey}`);
+      await awsS3Cp({
+        filePath,
+        bucket: SPACES_BUCKET,
+        key: objectKey,
+        endpointUrl: SPACES_ENDPOINT_URL,
+        contentType: "image/webp",
+        cacheControl: "public, max-age=31536000, immutable",
+      });
+      console.log(`Index [${idx}] - Uploaded: ${cardId} -> ${CDN_BASE_URL}/${objectKey}`);
+    } finally {
+      await rm(filePath, { force: true }).catch(() => {});
+    }
 
-    console.log(`Index [${idx}] - Uploaded: ${cardId} -> ${CDN_BASE_URL}/${objectKey}`);
   });
 }
 
@@ -100,7 +105,7 @@ export async function syncCardsPage(page: number): Promise<void> {
 
 function toCardId(card: CardData): string | null {
   const splits = card.public_code?.split("/") ?? [];
-  if (splits.length !== 2) return null;
+  if (splits.length > 2) return null;
 
   const cardId = splits[0];
 
