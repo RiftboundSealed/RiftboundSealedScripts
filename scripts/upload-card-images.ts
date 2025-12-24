@@ -4,7 +4,9 @@ import { mkdir, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import axios from "axios";
+
+import { fetchJsonWithTimeout } from "../util/helpers";
+import type { CardData, ReturnData } from "../util/types";
 
 // ---- Config (env) ----
 const CDN_BASE_URL = mustGetEnv("CDN_BASE_URL").replace(/\/+$/, "");
@@ -18,21 +20,6 @@ const API_TIMEOUT_MS = 60_000;
 const HEAD_TIMEOUT_MS = 10_000;
 const DOWNLOAD_TIMEOUT_MS = 60_000;
 const CONCURRENCY = 4;
-
-// ---- Types (minimal) ----
-type CardData = {
-  public_code: string | null;
-  set?: { set_id?: string | null } | null;
-  media?: { image_url?: string | null } | null;
-};
-
-type ReturnData = {
-  items: CardData[];
-  total: number;
-  page: number;
-  size: number;
-  pages: number;
-};
 
 // ---- Public entrypoint ----
 export async function syncCardsPage(page: number): Promise<void> {
@@ -112,38 +99,6 @@ function toCardId(card: CardData): string | null {
   const finalCardId = cardId?.replace("*", "s") || null;
 
   return finalCardId;
-}
-
-async function fetchJsonWithTimeout<T>(url: string, timeoutMs: number): Promise<T> {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const config = {
-      method: 'get',
-      maxBodyLength: Infinity,
-      url,
-      headers: { 
-        'Accept': 'application/json'
-      }
-    };
-
-    const res = await axios.request(config);
-
-    if (res.status !== 200) {
-      const body =
-        typeof res.data === "string"
-          ? res.data
-          : res.data != null
-            ? JSON.stringify(res.data)
-            : "";
-      throw new Error(`Fetch failed ${res.status} ${res.statusText}: ${body}`);
-    }
-
-    return (res.data) as T;
-  } finally {
-    clearTimeout(t);
-  }
 }
 
 async function headExists(url: string, timeoutMs: number): Promise<boolean> {
